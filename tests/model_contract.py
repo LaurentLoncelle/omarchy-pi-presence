@@ -36,7 +36,9 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "plugin"
+PLUGIN = ROOT / "plugin" if (ROOT / "plugin").is_dir() else ROOT
+# The standalone tree keeps the runtime files under plugin/; the Dotfiles copy of
+# this suite sits beside them. Same checks, either layout.
 # CI points this at a pinned checkout of Omarchy's shell/ directory.
 SHELL = Path(os.environ.get("OMARCHY_SHELL", "/usr/share/omarchy/shell"))
 
@@ -309,18 +311,27 @@ for kind in manifest.get("kinds", []):
 # .bar.layout.tray; "right" is the fixed part of the bar, outside that drawer.
 check("the widget defaults to the tray drawer",
       manifest.get("barWidget", {}).get("defaultSection") == "tray")
-installer = (ROOT / "install.sh").read_text()
+INSTALLER = ROOT / "install.sh"
+if not INSTALLER.exists():                       # the Dotfiles copy
+    INSTALLER = ROOT.parent / "scripts" / "pi-presence-sync"
+installer = INSTALLER.read_text()
+# Spacing and shell escaping differ between the standalone installer and the
+# Dotfiles sync script; the jq filter is the same, so compare it flattened.
+flat = re.sub(r"[\\\s]+", "", installer)
 check("the installer places the widget in the tray drawer",
-      '.tray=([\\"pi.presence\\"]+(.tray|strip_id))' in installer, "install.sh")
+      '.tray=(["pi.presence"]+(.tray|strip_id))' in flat, INSTALLER.name)
 check("the installer strips the widget from the fixed bar",
-      '.right=(.right|strip_id)' in installer, "install.sh")
+      '.right=(.right|strip_id)' in flat, INSTALLER.name)
 check("the service stays loaded", manifest.get("keepLoaded") is True)
 symlinks = [p for p in ROOT.rglob("*") if p.is_symlink()]
 check("no symlinks in the plugin", not symlinks, ", ".join(str(p) for p in symlinks))
 
 # Every state the pi extension can publish must be known to the widget, or the
 # row shows a fallback label and an unrelated glyph.
-extension = (ROOT / "extension/omarchy-presence.ts").read_text()
+EXT = ROOT / "extension" / "omarchy-presence.ts"
+if not EXT.exists():                            # the Dotfiles copy
+    EXT = ROOT.parent / "pi" / "agent" / "extensions" / "omarchy-presence.ts"
+extension = EXT.read_text()
 published = set(re.findall(r'publish\("([a-z_]+)"', extension))
 unknown = sorted(published - set(LABELS))
 check("every published state has a label", not unknown, ", ".join(unknown))
