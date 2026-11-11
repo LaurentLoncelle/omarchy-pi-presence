@@ -8,27 +8,32 @@
 // renders as the literal text it is.
 .pragma library
 
+// Material Design Icons codepoints, each checked against the icon set's own
+// metadata and against the bar font's cmap by tests/model_contract.py. These are
+// astral codepoints: a \u escape in QML cannot reach them, so compare with
+// codePointAt, and never guess one from the list's order. No comment goes inside
+// this table: the suite reads it with a key:value scan, and a colon in a comment
+// reads as a key.
 var GLYPHS = {
-  bar: 0xf0677,          // pi
-  barLive: 0xf0678,     // pi-box
-  barAttention: 0xf0679, // pi-circle
-  thinking: 0xf09e9,     // brain
-  tool: 0xf05ed,         // wrench
-  bash: 0xf050e,         // terminal
-  editing: 0xf03e9,      // pencil
+  bar: 0xf03ff,          // pi
+  barLive: 0xf0400,     // pi-box
+  thinking: 0xf09d1,     // brain
+  tool: 0xf05b7,         // wrench
+  bash: 0xf07b7,         // console-line
+  editing: 0xf03eb,      // pencil
   reading: 0xf0208,      // eye
   searching: 0xf0349,    // magnify
-  browsing: 0xf03ce,     // open-in-new
-  delegating: 0xf0605,   // robot-outline
-  planning: 0xf0339,     // clipboard-list
-  asking: 0xf0688,       // help-circle
-  waiting: 0xf167a,      // message-alert
-  compacting: 0xf0f55,   // progress-clock
-  done: 0xf05e3,         // check-circle
-  idle: 0xf07ea,         // circle-outline
-  error: 0xf0027,        // alert-circle
-  jump: 0xf03ce,         // open-in-new
-  refresh: 0xf049a,      // refresh
+  browsing: 0xf03cc,     // open-in-new
+  delegating: 0xf167a,   // robot-outline
+  planning: 0xf10d4,     // clipboard-list
+  asking: 0xf02d7,       // help-circle
+  waiting: 0xf05ce,      // clock-alert-outline
+  compacting: 0xf0996,   // progress-clock
+  done: 0xf05e0,         // check-circle
+  idle: 0xf0766,         // circle-outline
+  error: 0xf0028,        // alert-circle
+  jump: 0xf03cc,         // open-in-new
+  refresh: 0xf0450,      // refresh
   close: 0xf0156         // close
 };
 
@@ -92,11 +97,11 @@ function glyph(state) {
   return String.fromCodePoint(code);
 }
 
-// Three weights of the same pi: bare, boxed (working), circled (waiting on
-// you). One symbol, three states, so the icon never reads as a different app.
+// The pi, boxed while a session works. Attention is colour, not shape: MDI has
+// no pi-circle, and a third shape borrowed from another icon is exactly the bug
+// this file had once.
 function barGlyph(live, attention) {
-  var code = attention ? GLYPHS.barAttention : (live ? GLYPHS.barLive : GLYPHS.bar);
-  return String.fromCodePoint(code);
+  return String.fromCodePoint(live ? GLYPHS.barLive : GLYPHS.bar);
 }
 
 function label(state) {

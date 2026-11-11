@@ -15,14 +15,14 @@ and returns to the theme baseline when everything is idle.
         ┌────────────────────────────────────────────┐
         │ Pi sessions                              3   │
         │ ─────────────────────────────────────────── │
-        │ 󱁬  Notes            asking a question   2s  [jump]
+        │ 󰋗  Notes            asking a question   2s  [jump]
         │      ◦ asking a question
-        │ 󰓡  Dotfiles         executing bash       1s  [jump]
+        │ 󰞷  Dotfiles         executing bash       1s  [jump]
         │      ◦ thinking
         │      ◦ editing · Panel.qml
         │      ◦ executing bash · omarchy plugin validate
         │      qwen3.8 · 12 tools · 50s
-        │ 󰊄  pi idle · Dotfiles                   4s   [jump]
+        │ 󰏿 idle · Dotfiles                   4s   [jump]
         └────────────────────────────────────────────┘
 ```
 

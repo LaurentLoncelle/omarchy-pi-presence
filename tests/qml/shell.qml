@@ -115,7 +115,9 @@ ShellRoot {
       check("state label is readable", Model.label("bash") === "executing bash");
       check("unknown state falls back to its own name", Model.label("nonsense") === "nonsense");
       check("bar glyph changes when working", Model.barGlyph(false, false) !== Model.barGlyph(true, false));
-      check("bar glyph changes for attention", Model.barGlyph(true, false) !== Model.barGlyph(true, true));
+      // Attention is colour, not shape: the icon stays a pi.
+      check("attention keeps the pi shape", Model.barGlyph(true, false) === Model.barGlyph(true, true));
+      check("attention is urgent colour", Model.tone("waiting") === "urgent");
       var states = ["off", "idle", "thinking", "tool", "bash", "editing", "reading", "searching",
         "browsing", "delegating", "planning", "asking", "waiting", "compacting", "done", "error"];
       var covered = true;
@@ -174,9 +176,9 @@ ShellRoot {
       check("jump closes the panel", popupPanel.opened === false);
       // Compared by code point: the pi glyphs are astral, so a \u literal in QML
       // would not reach them.
-      check("bar icon is pi", Model.barGlyph(false, false).codePointAt(0) === 0xf0677);
-      check("bar icon is pi-box when working", Model.barGlyph(true, false).codePointAt(0) === 0xf0678);
-      check("bar icon is pi-circle when waiting", Model.barGlyph(true, true).codePointAt(0) === 0xf0679);
+      check("bar icon is pi", Model.barGlyph(false, false).codePointAt(0) === 0xf03ff);
+      check("bar icon is pi-box when working", Model.barGlyph(true, false).codePointAt(0) === 0xf0400);
+      check("pi-box shows for attention too", Model.barGlyph(true, true).codePointAt(0) === 0xf0400);
 
       console.log(failures === 0 ? "qml: ALL OK" : "qml: " + failures + " FAILED");
     }

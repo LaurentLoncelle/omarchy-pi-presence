@@ -239,6 +239,36 @@ if font is not None:
     # check that catches it.
     check(f"every glyph is in {font.name}", not missing, "; ".join(missing))
 
+# Material Design Icons codepoints, from the icon set's own metadata. Pinned
+# here so the glyph names in Model.js stay true offline: a codepoint guessed from
+# the list's order renders as some other icon, and the cmap check above cannot see
+# that — it only proves the codepoint is a glyph, not which one.
+GLYPH_NAMES = {
+    "bar": ("pi", 0xF03FF),
+    "barLive": ("pi-box", 0xF0400),
+    "thinking": ("brain", 0xF09D1),
+    "tool": ("wrench", 0xF05B7),
+    "bash": ("console-line", 0xF07B7),
+    "editing": ("pencil", 0xF03EB),
+    "reading": ("eye", 0xF0208),
+    "searching": ("magnify", 0xF0349),
+    "browsing": ("open-in-new", 0xF03CC),
+    "delegating": ("robot-outline", 0xF167A),
+    "planning": ("clipboard-list", 0xF10D4),
+    "asking": ("help-circle", 0xF02D7),
+    "waiting": ("clock-alert-outline", 0xF05CE),
+    "compacting": ("progress-clock", 0xF0996),
+    "done": ("check-circle", 0xF05E0),
+    "idle": ("circle-outline", 0xF0766),
+    "error": ("alert-circle", 0xF0028),
+    "jump": ("open-in-new", 0xF03CC),
+    "refresh": ("refresh", 0xF0450),
+    "close": ("close", 0xF0156),
+}
+for key, (name, code) in GLYPH_NAMES.items():
+    check(f"the {key} glyph is {name} U+{code:05X}", GLYPHS.get(key) == code,
+          f"GLYPHS[{key}]=0x{GLYPHS.get(key, 0):05X}")
+
 # ---- the files ------------------------------------------------------------
 
 qml_files = ["Panel.qml", "Service.qml"]
@@ -261,9 +291,8 @@ jump = panel[panel.index("function jump(session)"):]
 check("the widget closes before it focuses",
       jump.index("root.close()") < jump.index("Qt.callLater"))
 check("the popup is keyboard driven", "PanelKeyCatcher" in panel)
-check("the bar icon is the pi symbol in every weight",
-      GLYPHS["bar"] == 0xF0677 and GLYPHS["barLive"] == 0xF0678
-      and GLYPHS["barAttention"] == 0xF0679)
+check("the bar icon is the pi symbol, boxed when working",
+      (GLYPHS["bar"], GLYPHS["barLive"]) == (0xF03FF, 0xF0400))
 
 service = (PLUGIN / "Service.qml").read_text()
 check("the service reads the same registry", "sessions.json" in service)
