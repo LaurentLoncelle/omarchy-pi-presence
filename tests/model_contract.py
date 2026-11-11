@@ -40,6 +40,11 @@ ROOT = Path(__file__).resolve().parents[1]
 # validates ("a valid manifest.json in the repository root"), and it is also the
 # shape ~/.config/omarchy/plugins/<id> takes when installed.
 PLUGIN = ROOT
+# The standalone repository is the marketplace submission: it carries install.sh,
+# README, LICENSE and the card at the root. The Dotfiles copy is the same plugin
+# inside a dotfiles collection, where those live at the collection root and the
+# installer is a sync script, so those checks are gated on the tree.
+STANDALONE = (ROOT / "install.sh").is_file()
 # CI points this at a pinned checkout of Omarchy's shell/ directory.
 SHELL = Path(os.environ.get("OMARCHY_SHELL", "/usr/share/omarchy/shell"))
 
@@ -61,6 +66,11 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     else:
         failures.append(name)
         print(f"FAIL {name}" + (f": {detail}" if detail else ""))
+
+
+def skip(name: str, why: str) -> None:
+    """A check that belongs to the other tree, reported so it is not forgotten."""
+    print(f"skip {name}: {why}")
 
 
 # ---- the runtime harness ----------------------------------------------------
@@ -369,8 +379,14 @@ else:
 # https://plugins.omarchy.org/publish.html — what the listing validation looks
 # at. Checked here so a push that would be rejected upstream fails locally.
 check("manifest.json is at the repository root", (ROOT / "manifest.json").is_file())
-check("README is at the repository root", (ROOT / "README.md").is_file())
-check("LICENSE is at the repository root", (ROOT / "LICENSE").is_file())
+if STANDALONE:
+    check("README is at the repository root", (ROOT / "README.md").is_file())
+    check("LICENSE is at the repository root", (ROOT / "LICENSE").is_file())
+    check("preview.png is present for the marketplace card", (ROOT / "preview.png").is_file())
+else:
+    skip("README is at the repository root", "the dotfiles copy: the collection root has it")
+    skip("LICENSE is at the repository root", "the dotfiles copy: the collection root has it")
+    skip("preview.png is present for the marketplace card", "the standalone repo carries the card")
 for key in ("schemaVersion", "id", "name", "version", "author", "description",
             "kinds", "entryPoints"):
     check(f"the manifest has {key}", manifest.get(key) not in (None, "", []))
@@ -398,13 +414,15 @@ check("the panel is not a second kind, it is loaded by the bar widget",
       "panel" not in manifest.get("kinds", []),
       "the development guide: the bar widget's Loader loads Panel.qml; do not declare a panel kind")
 # Safe install and removal.
-check("the installer can uninstall", "--uninstall" in installer, INSTALLER.name)
+if STANDALONE:
+    check("the installer can uninstall", "--uninstall" in installer, INSTALLER.name)
+    # Everything it touches is under $HOME: the plugin dir, the extension dir, the
+    # shell config, the cache. No system paths, no privilege escalation.
+    abs_paths = re.findall(r"(?:cp|mv|rm -rf|mkdir -p)\s+/[^\s]+", installer)
+    check("the installer touches no absolute paths", not abs_paths, " ".join(abs_paths))
+else:
+    skip("the installer can uninstall", "pi-presence-sync syncs; install.sh uninstalls")
 check("the installer never uses sudo", "sudo" not in installer, INSTALLER.name)
-# Everything it touches is under $HOME: the plugin dir, the extension dir, the
-# shell config, the cache. No system paths, no privilege escalation.
-abs_paths = re.findall(r"(?:cp|mv|rm -rf|mkdir -p)\s+/[^\s]+", installer)
-check("the installer touches no absolute paths", not abs_paths, " ".join(abs_paths))
-check("preview.png is present for the marketplace card", (ROOT / "preview.png").is_file())
 
 if failures:
     print(f"\n{len(failures)} FAILED of {checks}")

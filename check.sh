@@ -17,11 +17,23 @@ ok() { printf '  ok   %s\n' "$1"; }
 no() { printf '  FAIL %s\n' "$1"; fail=1; }
 skip() { printf '  --   %s\n' "$1"; }
 
+# The standalone repository is the submission. The same plugin inside a dotfiles
+# collection keeps its README, LICENSE and installer at the collection root, so
+# only the manifest and the sources are checked there.
+standalone=1
+[[ -f install.sh ]] || standalone=0
+
 echo "repository"
-for f in manifest.json README.md LICENSE install.sh; do
+for f in manifest.json BarWidget.qml Panel.qml Service.qml Model.js; do
   [[ -f "$f" ]] && ok "$f" || no "$f is required"
 done
-[[ -f preview.png ]] && ok "preview.png" || no "preview.png is missing: run tests/make_preview.py"
+if [[ $standalone -eq 1 ]]; then
+  for f in README.md LICENSE preview.png; do
+    [[ -f "$f" ]] && ok "$f" || no "$f is missing (preview.png: run tests/make_preview.py)"
+  done
+else
+  skip "README.md LICENSE preview.png" "the dotfiles copy: they live at the collection root"
+fi
 
 if grep -q '\.symlink\|symlink:' manifest.json 2>/dev/null; then
   no "the manifest must not reference symlinks"
@@ -70,16 +82,22 @@ fi
 
 echo
 echo "installer"
-if grep -q "sudo" install.sh; then
-  no "the installer must not use sudo"
+if [[ $standalone -eq 0 ]]; then
+  skip "install and removal" "pi-presence-sync syncs; install.sh installs and uninstalls"
 else
-  ok "no sudo"
+  grep -q "sudo" install.sh && no "the installer must not use sudo" || ok "no sudo"
+  grep -q -- "--uninstall" install.sh && ok "removal is supported" || no "no --uninstall"
+  bash -n install.sh && ok "the installer parses" || no "the installer does not parse"
 fi
-grep -q -- "--uninstall" install.sh && ok "removal is supported" || no "no --uninstall"
-bash -n install.sh && ok "the installer parses" || no "the installer does not parse"
 
 if [[ "${1:-}" == "--quick" ]]; then
   echo; [[ $fail -eq 0 ]] && echo "ready to submit" || echo "not ready"
+  exit $fail
+fi
+
+if [[ $standalone -eq 0 ]]; then
+  echo
+  echo "ready to submit (from the standalone repository)"
   exit $fail
 fi
 
