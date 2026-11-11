@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "pi.presence",
   "name": "Pi presence",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "author": "loncelll",
   "license": "MIT",
   "description": "One robot icon for every Pi coding-agent session; it opens a popup of live sessions, their status bubbles, and a button that jumps to the session's terminal.",
@@ -17,7 +17,7 @@
   },
   "barWidget": {
     "displayName": "Pi presence",
-    "description": "Robot icon; click for every running Pi session, what each is doing, and a jump to its terminal.",
+    "description": "Robot icon in the tray drawer; click for every running Pi session, what each is doing, and a jump to its terminal.",
     "category": "Status",
     "aliases": [
       "pi",
@@ -25,7 +25,7 @@
       "agents"
     ],
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "tray"
   },
   "service": {
     "description": "Drives general:border_size and general:col.active_border through hyprctl eval: an accent gradient while a Pi works, solid urgent when one waits for you, the theme baseline restored when all are idle."

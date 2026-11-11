@@ -35,7 +35,10 @@ EXT_DST="$HOME/.pi/agent/extensions/omarchy-presence.ts"
 SHELL_JSON="$HOME/.config/omarchy/shell.json"
 CACHE_DIR="$HOME/.cache/pi-presence"
 MODULE="pi.presence"
-SECTION="right"
+# The tray's drawer, not the fixed bar. `omarchy.tray` is the expander, and the
+# bar fills its drawer from .bar.layout.tray; an id in .bar.layout.right sits in
+# the always-visible part of the bar, outside that drawer.
+SECTION="tray"
 
 DRY=0
 RESTART=1
@@ -72,17 +75,17 @@ bar_layout() {
   local filtered='def strip_id: map(select((if type == "string" then . else .id end) != "pi.presence"));'
   case "$mode" in
     add)
-      if [[ "$(jq '[.bar.layout.right[]? | (if type == "string" then . else (.id // "") end)]
-                   | index("pi.presence")' "$SHELL_JSON")" == "0" ]]; then
-        say "  bar slot already first in .$SECTION"
+      if [[ "$(jq "[.bar.layout.tray[]? | (if type == \"string\" then . else (.id // \"\") end)]
+                   | index(\"pi.presence\")" "$SHELL_JSON")" == "0" ]]; then
+        say "  widget already first in the tray's drawer"
         return 0
       fi
       do_ bash -c "jq '$filtered
         .bar.layout |= (.left=(.left|strip_id) | .center=(.center|strip_id)
           | .centerBegin=(.centerBegin|strip_id) | .centerEnd=(.centerEnd|strip_id)
-          | .tray=(.tray|strip_id) | .right=([\"pi.presence\"]+(.right|strip_id)))' \
+          | .right=(.right|strip_id) | .tray=([\"pi.presence\"]+(.tray|strip_id)))' \
           '$SHELL_JSON' > '$SHELL_JSON.tmp' && mv '$SHELL_JSON.tmp' '$SHELL_JSON'"
-      say "  widget placed first in .$SECTION"
+      say "  widget placed first in the tray's drawer"
       ;;
     remove)
       do_ bash -c "jq '$filtered .bar.layout |= (.left=(.left|strip_id) | .center=(.center|strip_id)
@@ -163,6 +166,7 @@ if [[ "$RESTART" == 1 ]]; then
 fi
 
 say ""
-say "done. The robot icon sits at the right of the bar; click it for the sessions panel."
+say "done. The robot sits in the tray drawer at the right of the bar: open the tray with"
+say "the chevron, then click the robot for the sessions panel."
 say "Start a pi session to see it light up. Restart pi to load the extension."
 say "Check: $HERE/tests/model_contract.py"

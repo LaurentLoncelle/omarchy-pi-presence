@@ -275,8 +275,15 @@ check("the manifest id is pi.presence", manifest.get("id") == "pi.presence")
 for kind in manifest.get("kinds", []):
     entry = manifest.get("entryPoints", {}).get("service" if kind == "service" else "barWidget")
     check(f"{kind} entry point exists: {entry}", bool(entry) and (PLUGIN / entry).is_file())
-check("the widget defaults to the right section",
-      manifest.get("barWidget", {}).get("defaultSection") == "right")
+# The collapsible zone is the tray's drawer, which the bar fills from
+# .bar.layout.tray; "right" is the fixed part of the bar, outside that drawer.
+check("the widget defaults to the tray drawer",
+      manifest.get("barWidget", {}).get("defaultSection") == "tray")
+installer = (ROOT / "install.sh").read_text()
+check("the installer places the widget in the tray drawer",
+      '.tray=([\\"pi.presence\\"]+(.tray|strip_id))' in installer, "install.sh")
+check("the installer strips the widget from the fixed bar",
+      '.right=(.right|strip_id)' in installer, "install.sh")
 check("the service stays loaded", manifest.get("keepLoaded") is True)
 symlinks = [p for p in ROOT.rglob("*") if p.is_symlink()]
 check("no symlinks in the plugin", not symlinks, ", ".join(str(p) for p in symlinks))
