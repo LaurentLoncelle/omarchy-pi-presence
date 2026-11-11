@@ -10,6 +10,8 @@ The window border tells the story from across the room: it swells to a rotating
 accent gradient while an agent works, goes solid urgent when one waits for you,
 and returns to the theme baseline when everything is idle.
 
+![The panel, open over three live sessions](preview.png)
+
 ```
                     π 3                            in the tray drawer, right
         ┌────────────────────────────────────────────┐
@@ -35,8 +37,12 @@ cd ~/Work/pi-presence
 ```
 
 `install.sh` copies the plugin into `~/.config/omarchy/plugins/pi-presence`,
-validates it, puts the widget first in the bar's right section, installs the pi
+validates it, puts the widget first in the bar's **tray drawer**, installs the pi
 extension into `~/.pi/agent/extensions/`, and restarts the shell.
+
+The plugin has two pieces, and both are needed: the QML plugin shows the state the
+pi extension writes. Installing only the plugin gives an empty panel; installing
+only the extension writes a file nobody reads.
 
 | flag | effect |
 | --- | --- |
@@ -72,13 +78,13 @@ pi process C ─┘        (registry, v2)                              └► Se
   filesystem — with a stale-lock timeout, and the JSON is written **in place**,
   never by rename: the panel's `FileView` watches that inode, and a rename moves
   the inode out from under it.
-* **The widget** (`plugin/BarWidget.qml`) is a `Ui/BarWidget.qml`, and it hosts
-  `plugin/Panel.qml` — a `Ui/Panel.qml` — through a `Loader`, injecting `bar`,
+* **The widget** (`BarWidget.qml`) is a `Ui/BarWidget.qml`, and it hosts
+  `Panel.qml` — a `Ui/Panel.qml` — through a `Loader`, injecting `bar`,
   `settings` and `anchorItem` exactly as Omarchy's own clock widget does. This is
-  the shape the bar understands: a nested panel is `manageIpc: false` and is
-  opened by the bar (`shell.togglePanelAt right 0`), because a `PopupCard` in
-  click mode takes a `HyprlandFocusGrab`, which needs a pointer serial that an
-  IPC open cannot supply — it then silently refuses to map.
+  the shape the bar understands: the nested panel is `manageIpc: false` and the
+  bar owns the panel slot, because a `PopupCard` in click mode takes a
+  `HyprlandFocusGrab`, which needs a pointer serial that an IPC open cannot supply
+  — it then silently refuses to map.
 * **The service** (`plugin/Service.qml`) drives Hyprland through `hyprctl eval`:
   `general:border_size`, `general:col.active_border`, and the `borderangle`
   animation. It captures the theme's baseline on first run and mirrors it to
@@ -111,8 +117,7 @@ name, or a window title. None of it is trusted by this UI:
 | `r` | re-read the registry |
 | `Esc` | close |
 | `/presence` (inside pi) | report sessions, summon the panel |
-| `omarchy-shell pi.presence open` | summon the panel |
-| `omarchy-shell shell.togglePanelAt right 0` | the canonical route the bar itself uses |
+| `omarchy-shell shell toggle pi.presence` | summon the panel |
 
 Jump closes the panel first: the panel holds a focus grab, and a focus request
 made under it goes nowhere. It focuses by window address, falling back to
@@ -135,7 +140,7 @@ suite reads that font's cmap and fails if a glyph is missing.
 python3 tests/model_contract.py
 ```
 
-80 checks, in three layers:
+132 checks, in three layers:
 
 1. **runtime** — `quickshell` under `QT_QPA_PLATFORM=offscreen`, loading the real
    widget and the real panel, fed a registry with sessions in three states: sort
@@ -150,13 +155,31 @@ python3 tests/model_contract.py
 
 `deno fmt --check && deno lint` covers the extension.
 
+`./check.sh` runs the marketplace's own gates — manifest at the root, required
+fields, safe entry points, no symlinks, an installer that has `--uninstall` and no
+`sudo` — and then the suite. Run it before submitting.
+
+```bash
+./check.sh            # marketplace gates, then the suite
+./check.sh --quick   # gates only
+```
+
+`preview.png` is the marketplace card. It is not a mock: `tests/make_preview.py`
+starts two real headless pi sessions, summons the panel through the shell's IPC,
+captures the screen with `grim` and crops the card.
+
 ## Files
 
+The plugin is the repository root — `manifest.json` sits at the top, as the
+marketplace requires.
+
 ```
-install.sh
-plugin/    manifest.json BarWidget.qml Panel.qml Service.qml Model.js i18n/en.json
-extension/ omarchy-presence.ts
-tests/     model_contract.py qml/{shell,PopupCard,KeyboardPanel}.qml
+manifest.json  BarWidget.qml  Panel.qml  Service.qml  Model.js  i18n/en.json
+install.sh      the portable installer
+check.sh        the marketplace gates
+extension/      omarchy-presence.ts
+tests/          model_contract.py qml/{shell,PopupCard,KeyboardPanel}.qml make_preview.py
+preview.png     the marketplace card
 ```
 
 `tests/qml/{PopupCard,KeyboardPanel}.qml` are offscreen stand-ins: layer-shell
@@ -175,3 +198,26 @@ Removes the plugin, the extension, and the widget's bar slot. Leaves
 ## License
 
 MIT
+
+## Publishing
+
+The plugin is ready for [plugins.omarchy.org/publish](https://plugins.omarchy.org/publish.html):
+
+1. push this repository to GitHub, public
+2. `./check.sh` — all gates green, and `omarchy plugin validate .` passes
+3. open the submit form with the repository URL, category **Status**, and tags
+   `pi`, `agents`, `bar`, `tray`, `hyprland`
+
+The manifest is at the root with every required field (`schemaVersion`, `id`,
+`name`, `version`, `author`, `description`, `kinds`, `entryPoints`), the card is
+`preview.png`, and the license is MIT.
+
+Install and removal are both safe and both reversible: the installer copies files
+(it writes no symlinks, never uses `sudo`, edits `~/.config/omarchy/shell.json`
+through a parse-checked temp file, and refuses to run with an invalid shell.json),
+and `./install.sh --uninstall` removes the plugin, the extension and the bar slot,
+restoring the window border it captured.
+
+Plugins run unsandboxed. This one's side effects are: reading
+`~/.cache/pi-presence/sessions.json`, writing that file and
+`border-baseline.json`, and running `hyprctl`/`notify-send`/`omarchy-shell`.

@@ -5,7 +5,7 @@
   "version": "2.2.0",
   "author": "loncelll",
   "license": "MIT",
-  "description": "One robot icon for every Pi coding-agent session; it opens a popup of live sessions, their status bubbles, and a button that jumps to the session's terminal.",
+  "description": "One pi icon for every Pi coding-agent session; it opens a popup of live sessions, their status bubbles, and a button that jumps to the session's terminal.",
   "kinds": [
     "bar-widget",
     "service"
@@ -17,7 +17,7 @@
   },
   "barWidget": {
     "displayName": "Pi presence",
-    "description": "Robot icon in the tray drawer; click for every running Pi session, what each is doing, and a jump to its terminal.",
+    "description": "pi icon in the tray drawer; click for every running Pi session, what each is doing, and a jump to its terminal.",
     "category": "Status",
     "aliases": [
       "pi",

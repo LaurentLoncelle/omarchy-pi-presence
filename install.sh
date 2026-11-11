@@ -18,16 +18,21 @@
 #   * The pi extension is loaded at `pi` startup: edits land on the next launch,
 #     never in a running session. There is nothing to restart in the shell for it.
 #
-# Layout of this project:
-#   plugin/      the shell plugin, as it is installed
+# Layout of this project (the marketplace validates a manifest.json at the
+# repository root, so the plugin is flat here and NOT nested in a subfolder):
+#   manifest.json BarWidget.qml Panel.qml Service.qml Model.js i18n/
+#                the plugin, exactly as installed
 #   extension/   the pi extension, single file
 #   tests/       contract test: the panel's model against the registry shape,
 #                the plugin against the manifest schema, the bar font's cmap
+#   preview.png  the marketplace card image, optional
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_SRC="$HERE/plugin"
+# Copied file by file, so the extension, the tests, this installer and the
+# docs do not end up inside the plugin folder.
+RUNTIME=(manifest.json BarWidget.qml Panel.qml Service.qml Model.js i18n)
 EXT_SRC="$HERE/extension/omarchy-presence.ts"
 
 PLUGIN_DST="$HOME/.config/omarchy/plugins/pi-presence"
@@ -120,10 +125,12 @@ for tool in jq omarchy; do
     exit 1
   }
 done
-[[ -f "$PLUGIN_SRC/manifest.json" && -f "$PLUGIN_SRC/BarWidget.qml" ]] || {
-  echo "missing $PLUGIN_SRC — run this from inside the project" >&2
-  exit 1
-}
+for f in "${RUNTIME[@]}"; do
+  [[ -e "$HERE/$f" ]] || {
+    echo "missing $HERE/$f — run this from inside the project" >&2
+    exit 1
+  }
+done
 [[ -f "$EXT_SRC" ]] || { echo "missing $EXT_SRC" >&2; exit 1; }
 
 say "installing $MODULE from $HERE"
@@ -132,7 +139,9 @@ say "installing $MODULE from $HERE"
 # registry, and it renders whatever the last install had in it.
 do_ rm -rf "$PLUGIN_DST"
 do_ mkdir -p "$PLUGIN_DST"
-do_ cp -a "$PLUGIN_SRC/." "$PLUGIN_DST/"
+for f in "${RUNTIME[@]}"; do
+  do_ cp -a "$HERE/$f" "$PLUGIN_DST/"
+done
 say "  plugin  → $PLUGIN_DST"
 
 do_ mkdir -p "$(dirname "$EXT_DST")"

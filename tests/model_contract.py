@@ -36,9 +36,10 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "plugin" if (ROOT / "plugin").is_dir() else ROOT
-# The standalone tree keeps the runtime files under plugin/; the Dotfiles copy of
-# this suite sits beside them. Same checks, either layout.
+# The plugin is flat at the repository root: that is the layout the marketplace
+# validates ("a valid manifest.json in the repository root"), and it is also the
+# shape ~/.config/omarchy/plugins/<id> takes when installed.
+PLUGIN = ROOT
 # CI points this at a pinned checkout of Omarchy's shell/ directory.
 SHELL = Path(os.environ.get("OMARCHY_SHELL", "/usr/share/omarchy/shell"))
 
@@ -363,7 +364,50 @@ if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
 else:
     print("skipped live registry check: not a Hyprland session")
 
+
+# ---- the marketplace contract ----------------------------------------------
+# https://plugins.omarchy.org/publish.html — what the listing validation looks
+# at. Checked here so a push that would be rejected upstream fails locally.
+check("manifest.json is at the repository root", (ROOT / "manifest.json").is_file())
+check("README is at the repository root", (ROOT / "README.md").is_file())
+check("LICENSE is at the repository root", (ROOT / "LICENSE").is_file())
+for key in ("schemaVersion", "id", "name", "version", "author", "description",
+            "kinds", "entryPoints"):
+    check(f"the manifest has {key}", manifest.get(key) not in (None, "", []))
+entry_points = manifest.get("entryPoints", {})
+check("schemaVersion is 1", manifest.get("schemaVersion") == 1)
+check("the id is namespaced", re.fullmatch(r"[a-z0-9]+(\.[a-z0-9]+)+", manifest.get("id", "")))
+check("the id is not under omarchy.*", not manifest.get("id", "").startswith("omarchy."),
+      "third-party ids cannot use the omarchy namespace")
+check("the version is semver", re.fullmatch(r"\d+\.\d+\.\d+", manifest.get("version", "")))
+# The kind table in the development guide: each kind needs its entry point key.
+KIND_KEY = {"bar-widget": "barWidget", "panel": "panel", "overlay": "overlay",
+            "menu": "menu", "service": "service", "bar": "bar"}
+for kind in manifest.get("kinds", []):
+    key = KIND_KEY.get(kind)
+    check(f"kind {kind} has entryPoints.{key}", key is not None and key in entry_points,
+          f"kinds={manifest.get('kinds')} entryPoints={list(entry_points)}")
+    target = entry_points.get(key)
+    file = ROOT / target
+    check(f"{kind} entry point {target} exists",
+          target is not None and file.is_file(), str(target))
+    check(f"{target} is a safe relative path",
+          target is not None and not target.startswith("/") and ".." not in Path(target).parts,
+          str(target))
+check("the panel is not a second kind, it is loaded by the bar widget",
+      "panel" not in manifest.get("kinds", []),
+      "the development guide: the bar widget's Loader loads Panel.qml; do not declare a panel kind")
+# Safe install and removal.
+check("the installer can uninstall", "--uninstall" in installer, INSTALLER.name)
+check("the installer never uses sudo", "sudo" not in installer, INSTALLER.name)
+# Everything it touches is under $HOME: the plugin dir, the extension dir, the
+# shell config, the cache. No system paths, no privilege escalation.
+abs_paths = re.findall(r"(?:cp|mv|rm -rf|mkdir -p)\s+/[^\s]+", installer)
+check("the installer touches no absolute paths", not abs_paths, " ".join(abs_paths))
+check("preview.png is present for the marketplace card", (ROOT / "preview.png").is_file())
+
 if failures:
     print(f"\n{len(failures)} FAILED of {checks}")
     sys.exit(1)
 print(f'\n{{"checks": {checks}, "failed": 0}}')
+
