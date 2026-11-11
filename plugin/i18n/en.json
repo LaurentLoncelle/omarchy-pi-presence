@@ -1,0 +1,15 @@
+{
+  "panel.title": "Pi sessions",
+  "panel.none": "No Pi sessions",
+  "panel.refresh": "Refresh",
+  "panel.sessions": {
+    "one": "%1 Pi session",
+    "other": "%1 Pi sessions"
+  },
+  "panel.working": {
+    "one": "%1 working",
+    "other": "%1 working"
+  },
+  "row.jump": "Jump to this session",
+  "bar.attention": "needs you"
+}

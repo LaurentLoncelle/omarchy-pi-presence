@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""pi.presence: the widget's own decisions, checked without a compositor, a
+running pi, or a theme reload.
+
+What breaks silently here is not the drawing:
+
+  * the state sort — a session waiting on you has to be the first row the
+    keyboard walks, or the popup is decoration;
+  * the torn read — the extension writes sessions.json in place and the watcher
+    fires mid-write, so a partial file has to read as "keep the last frame"
+    rather than "no sessions", which would blank the bar every few seconds;
+  * staleness — a pi killed mid-work must not leave a row that the jump button
+    takes you nowhere;
+  * the glyphs — every state the extension can publish needs a codepoint, and
+    a missing one shows as a box in the bar;
+  * the jump argv — hl.dsp.window.bring_to_top reports success and never moves
+    focus, which is how the notification's button was dead for a week.
+
+tests/qml/shell.qml drives the real Model.js and the real bar widget, with
+qs.Ui's PopupCard replaced by a plain Item (a layer-shell popup has no backend
+offscreen). This builds that harness, reads the tally, and adds the checks that
+belong to the files rather than the runtime: the font, the manifest, and the
+plain-text rule for anything a tool can influence.
+
+Needs quickshell and Omarchy's qs.Commons / qs.Ui, which the harness links in.
+"""
+import os
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+PLUGIN = ROOT / "plugin"
+# CI points this at a pinned checkout of Omarchy's shell/ directory.
+SHELL = Path(os.environ.get("OMARCHY_SHELL", "/usr/share/omarchy/shell"))
+
+# A check that cannot run fails: a skip that reads as a pass lets breakage ship.
+if shutil.which("quickshell") is None:
+    raise SystemExit("quickshell is not installed; the widget's logic cannot be checked")
+if not SHELL.is_dir():
+    raise SystemExit(f"Omarchy's shell modules are not at {SHELL}; set OMARCHY_SHELL")
+
+failures: list[str] = []
+checks = 0
+
+
+def check(name: str, ok: bool, detail: str = "") -> None:
+    global checks
+    checks += 1
+    if ok:
+        print(f"ok   {name}")
+    else:
+        failures.append(name)
+        print(f"FAIL {name}" + (f": {detail}" if detail else ""))
+
+
+# ---- the runtime harness ----------------------------------------------------
+
+env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+env.pop("WAYLAND_DISPLAY", None)
+env.pop("DISPLAY", None)
+# Omarchy sets QT_QPA_PLATFORMTHEME=gtk3, and that theme opens a GTK display of
+# its own even under offscreen; with no display it fails and the harness dies
+# before printing a check.
+env.pop("QT_QPA_PLATFORMTHEME", None)
+
+with tempfile.TemporaryDirectory(prefix="pi-presence-qml-") as directory:
+    harness = Path(directory)
+    shutil.copy(ROOT / "tests/qml/shell.qml", harness / "shell.qml")
+    shutil.copy(PLUGIN / "Model.js", harness / "Model.js")
+    shutil.copytree(PLUGIN / "i18n", harness / "i18n")
+    # The bar widget and the popup under other names: both extend qs.Ui types,
+    # and a file of the same name beside them would resolve that name to itself.
+    shutil.copy(PLUGIN / "BarWidget.qml", harness / "BarPanel.qml")
+    shutil.copy(PLUGIN / "Panel.qml", harness / "PresencePanel.qml")
+    (harness / "Commons").symlink_to(SHELL / "Commons")
+    # qs.Ui as Omarchy ships it, but for the popups: a layer-shell window has no
+    # backend offscreen, so plain Items with the same properties take their place.
+    shutil.copytree(SHELL / "Ui", harness / "Ui", symlinks=True)
+    # The stubs replace real files, and the tree above is symlinked: writing
+    # through the symlink would hit the read-only system copy, so unlink first.
+    for stub in ("PopupCard.qml", "KeyboardPanel.qml"):
+        (harness / "Ui" / stub).unlink()
+        shutil.copy(ROOT / "tests/qml" / stub, harness / "Ui" / stub)
+    # Quickshell keeps per-instance state in the runtime directory; a private one
+    # also works where the session has none (CI containers).
+    runtime = harness / "runtime"
+    runtime.mkdir(mode=0o700)
+    env["XDG_RUNTIME_DIR"] = str(runtime)
+
+    shell = subprocess.Popen(["quickshell", "-p", str(harness)], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, env=env)
+    timer = threading.Timer(30, shell.kill)
+    timer.start()
+    lines: list[str] = []
+    for line in shell.stdout:
+        lines.append(line)
+        if re.search(r"qml:\s+(ALL OK|\d+ FAILED)", re.sub(r"\x1b\[[0-9;]*m", "", line)):
+            break
+    timer.cancel()
+    shell.kill()
+    shell.wait()
+    output = "".join(lines)
+
+plain = re.sub(r"\x1b\[[0-9;]*m", "", output)
+runtime_checks = re.findall(r"qml:\s+(ok|FAIL)\s+(.*?)\s*$", plain, re.MULTILINE)
+failed = [name for state, name in runtime_checks if state == "FAIL"]
+
+check("the harness produced checks", bool(runtime_checks), plain[-2000:])
+# Name what broke before complaining the run was incomplete: a failed check is
+# the useful message, and it is also why the run did not reach "ALL OK".
+check("no runtime check failed", not failed, "; ".join(failed))
+check("the harness finished", "ALL OK" in plain, plain[-2000:])
+# QML reports binding and type errors as warnings, and a widget that loads with
+# an unbound property prints them without failing a single check above.
+noise = [line for line in plain.splitlines()
+         if re.search(r"is not defined|Cannot assign|is not a member|Type .* unavailable"
+                      r"|is a required property|QtQuick.*no such", line)]
+check("QML raised no binding errors", not noise, "\n".join(noise[:8]))
+
+checks += len(runtime_checks)
+
+# ---- the font ---------------------------------------------------------------
+
+BAR_FONT_FALLBACKS = [
+    "/usr/share/fonts/TTF/JetBrainsMonoNL-Regular.ttf",
+    "/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf",
+]
+
+
+def bar_font() -> Path | None:
+    try:
+        out = subprocess.run(
+            ["fc-match", "-f", "%{file}",
+             f"family={os.environ.get('OMARCHY_BAR_FONT_FAMILY', 'monospace')}:style=Regular"],
+            capture_output=True, text=True, check=True).stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+    path = Path(out)
+    if path.is_file():
+        return path
+    for candidate in BAR_FONT_FALLBACKS:
+        if Path(candidate).is_file():
+            return Path(candidate)
+    return None
+
+
+def cmap(path: Path) -> set[int]:
+    """Codepoints the font covers, from its cmap table (format 4 and 12)."""
+    data = path.read_bytes()
+    if data[:4] != b"\x00\x01\x00\x00" and data[:4] != b"true":
+        return set()
+    num = struct.unpack(">H", data[4:6])[0]
+    tables = {}
+    for i in range(num):
+        off = 12 + i * 16
+        tag = data[off:off + 4].decode("latin-1")
+        tables[tag] = struct.unpack(">II", data[off + 8:off + 16])
+    if "cmap" not in tables:
+        return set()
+    start = tables["cmap"][0]
+    cmap_bytes = data[start:]
+    count = struct.unpack(">H", cmap_bytes[2:4])[0]
+    found: set[int] = set()
+    for i in range(count):
+        rec = 4 + i * 8
+        sub = struct.unpack(">II", cmap_bytes[rec + 4:rec + 12])[0]
+        fmt = struct.unpack(">H", cmap_bytes[sub:sub + 2])[0]
+        if fmt == 4:
+            seg = struct.unpack(">H", cmap_bytes[sub + 6:sub + 8])[0] // 2
+            ends = struct.unpack(f">{seg}H", cmap_bytes[sub + 14:sub + 14 + seg * 2])
+            starts = struct.unpack(f">{seg}H", cmap_bytes[sub + 16 + seg * 2:sub + 16 + seg * 4])
+            deltas = struct.unpack(f">{seg}h", cmap_bytes[sub + 18 + seg * 4:sub + 18 + seg * 6])
+            ranges = struct.unpack(f">{seg}H", cmap_bytes[sub + 18 + seg * 6:sub + 18 + seg * 8])
+            for s, e, d, r in zip(starts, ends, deltas, ranges):
+                for cp in range(s, min(e, 0xFFFF) + 1):
+                    if r == 0:
+                        if (cp + d) & 0xFFFF:
+                            found.add(cp)
+                    else:
+                        addr = sub + r + (cp - s) * 2
+                        gid = struct.unpack(">H", cmap_bytes[addr:addr + 2])[0]
+                        if gid:
+                            found.add(cp)
+        elif fmt == 12:
+            n = struct.unpack(">I", cmap_bytes[sub + 12:sub + 16])[0]
+            for i in range(n):
+                rec = sub + 16 + i * 12
+                s, e, g = struct.unpack(">III", cmap_bytes[rec:rec + 12])
+                if g:
+                    found.update(range(s, e + 1))
+    return found
+
+
+def model_js(name: str) -> str:
+    return (PLUGIN / "Model.js").read_text()
+
+
+def export_from(name: str) -> dict:
+    """Pull a JS literal table out of Model.js, without a JS engine.
+
+    The tables are `var NAME = { key: value, … }` with trailing comments, so
+    they are not JSON: keys are bare and the glyph values are hex.
+    """
+    body = model_js(name)
+    match = re.search(rf"var {name} = \{{(.*?)\n\}};", body, re.DOTALL)
+    if not match:
+        raise SystemExit(f"Model.js: cannot find var {name}")
+    out: dict[str, object] = {}
+    for key, raw in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)(?:,\s*(?://[^\n]*)?|\s*//[^\n]*|\s*$)",
+                                match.group(1)):
+        value = raw.strip()
+        if value.startswith('"') and value.endswith('"'):
+            out[key] = value[1:-1]
+        elif value.startswith("0x"):
+            out[key] = int(value, 16)
+        elif value:
+            out[key] = value
+    return out
+
+
+GLYPHS = export_from("GLYPHS")
+LABELS = export_from("LABELS")
+
+font = bar_font()
+check("the bar font resolves", font is not None,
+      f"OMARCHY_BAR_FONT_FAMILY={os.environ.get('OMARCHY_BAR_FONT_FAMILY', '<unset>')}")
+if font is not None:
+    covered = cmap(font)
+    check("the bar font's cmap parsed", bool(covered), font.as_uri())
+    missing = sorted(f"U+{cp:05X} {label}" for label, cp in GLYPHS.items() if cp not in covered)
+    # A missing codepoint is a tofu box in the bar, not a crash: this is the
+    # check that catches it.
+    check(f"every glyph is in {font.name}", not missing, "; ".join(missing))
+
+# ---- the files ------------------------------------------------------------
+
+qml_files = ["Panel.qml", "Service.qml"]
+for name in qml_files:
+    text = (PLUGIN / name).read_text()
+    texts = len(re.findall(r"\bText\s*\{|\bText\.$", text, re.MULTILINE))
+    plain = len(re.findall(r"textFormat: Text\.PlainText", text))
+    rich = len(re.findall(r"Text\.RichText|Text\.StylizedText|contentItem: \w*Rich", text))
+    # The plugin renders text a tool can influence: model names, cwd, tool
+    # subjects, bubble threads, notification bodies. Plain text is the boundary:
+    # markup-shaped input has to render as the literal text it is.
+    check(f"{name}: text sinks are all plain text", plain >= texts and rich == 0,
+          f"{plain} plain-text sinks for {texts} Text elements, {rich} rich")
+
+panel = (PLUGIN / "Panel.qml").read_text()
+check("the widget watches the registry for changes", "watchChanges: true" in panel)
+check("the widget reloads on change", "onFileChanged: statusFile.reload()" in panel)
+check("the widget reads sessions.json", "sessions.json" in panel)
+jump = panel[panel.index("function jump(session)"):]
+check("the widget closes before it focuses",
+      jump.index("root.close()") < jump.index("Qt.callLater"))
+check("the popup is keyboard driven", "PanelKeyCatcher" in panel)
+check("the bar icon is a robot, idle and working",
+      GLYPHS["bar"] == 0xF0605 and GLYPHS["barLive"] == 0xF06A9)
+
+service = (PLUGIN / "Service.qml").read_text()
+check("the service reads the same registry", "sessions.json" in service)
+check("the service restores the baseline", "restoreIdle" in service and "hl.config" in service)
+check("the service mirrors its baseline", "border-baseline.json" in service)
+
+manifest = json.loads((PLUGIN / "manifest.json").read_text())
+check("the manifest is schema version 1", manifest.get("schemaVersion") == 1)
+check("the manifest id is pi.presence", manifest.get("id") == "pi.presence")
+for kind in manifest.get("kinds", []):
+    entry = manifest.get("entryPoints", {}).get("service" if kind == "service" else "barWidget")
+    check(f"{kind} entry point exists: {entry}", bool(entry) and (PLUGIN / entry).is_file())
+check("the widget defaults to the right section",
+      manifest.get("barWidget", {}).get("defaultSection") == "right")
+check("the service stays loaded", manifest.get("keepLoaded") is True)
+symlinks = [p for p in ROOT.rglob("*") if p.is_symlink()]
+check("no symlinks in the plugin", not symlinks, ", ".join(str(p) for p in symlinks))
+
+# Every state the pi extension can publish must be known to the widget, or the
+# row shows a fallback label and an unrelated glyph.
+extension = (ROOT / "extension/omarchy-presence.ts").read_text()
+published = set(re.findall(r'publish\("([a-z_]+)"', extension))
+unknown = sorted(published - set(LABELS))
+check("every published state has a label", not unknown, ", ".join(unknown))
+check("the extension publishes to the registry the widget reads",
+      "sessions.json" in extension and "sessions.json" in panel)
+check("the extension has no osd bubbles", ".osd(" not in extension,
+      "the bar is the indicator; per-tool notifications were asked for to stop")
+check("the presence command summons through the bar",
+      '"shell", "toggle"' in extension.replace("\n", " ").replace("  ", " "),
+      "summon route")
+check("the notification jumps by window address",
+      "hl.dsp.focus({ window = " in extension and "address:" in extension)
+
+# ---- focus, live -----------------------------------------------------------
+# The last check runs against the machine: it needs Hyprland, so it is skipped
+# offscreen and is real where the plugin is installed.
+if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+    registry = Path(os.environ["HOME"]) / ".cache/pi-presence/sessions.json"
+    if registry.is_file():
+        frame = json.loads(registry.read_text())
+        check("the live registry is version 2", frame.get("v") == 2, str(frame.get("v")))
+        check("the live registry carries the host",
+              all(s.get("host") for s in frame.get("sessions", [])),
+              json.dumps([s.get("host") for s in frame.get("sessions", [])]))
+        check("every live session has a state",
+              all(s.get("state") in LABELS for s in frame.get("sessions", [])))
+    else:
+        print("skipped live registry check: no sessions.json yet")
+else:
+    print("skipped live registry check: not a Hyprland session")
+
+if failures:
+    print(f"\n{len(failures)} FAILED of {checks}")
+    sys.exit(1)
+print(f'\n{{"checks": {checks}, "failed": 0}}')
