@@ -6,7 +6,7 @@ import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Pi presence, bar side: the robot icon, and the host for the session popup.
+// Pi presence, bar side: the π icon, and the host for the session popup.
 //
 // Shape contract, as `panels/clock/BarWidget.qml` implements it: the bar owns
 // the widget mounted in its slot, and identifies a panel by that widget — the

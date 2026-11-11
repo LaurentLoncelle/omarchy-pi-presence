@@ -9,8 +9,9 @@
 .pragma library
 
 var GLYPHS = {
-  bar: 0xf0605,          // robot-outline
-  barLive: 0xf06a9,     // robot
+  bar: 0xf0677,          // pi
+  barLive: 0xf0678,     // pi-box
+  barAttention: 0xf0679, // pi-circle
   thinking: 0xf09e9,     // brain
   tool: 0xf05ed,         // wrench
   bash: 0xf050e,         // terminal
@@ -91,8 +92,11 @@ function glyph(state) {
   return String.fromCodePoint(code);
 }
 
+// Three weights of the same pi: bare, boxed (working), circled (waiting on
+// you). One symbol, three states, so the icon never reads as a different app.
 function barGlyph(live, attention) {
-  return String.fromCodePoint(attention ? GLYPHS.waiting : (live ? GLYPHS.barLive : GLYPHS.bar));
+  var code = attention ? GLYPHS.barAttention : (live ? GLYPHS.barLive : GLYPHS.bar);
+  return String.fromCodePoint(code);
 }
 
 function label(state) {

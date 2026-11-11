@@ -1,6 +1,6 @@
 # pi.presence
 
-One robot icon on the right of the [Omarchy](https://omarchy.org) bar. Click it
+One **π** on the right of the [Omarchy](https://omarchy.org) bar, in the tray drawer. Click it
 and a panel drops down listing every running [pi](https://pi.dev) session — the
 project, what it is doing right now (`executing bash`, `editing`, `asking a
 question`, `waiting for you`), a thread of its recent bubbles, and a **Jump**
@@ -11,7 +11,7 @@ accent gradient while an agent works, goes solid urgent when one waits for you,
 and returns to the theme baseline when everything is idle.
 
 ```
-                    󰚩 3                                  bar, right side
+                    π 3                            in the tray drawer, right
         ┌────────────────────────────────────────────┐
         │ Pi sessions                              3   │
         │ ─────────────────────────────────────────── │
@@ -105,7 +105,7 @@ name, or a window title. None of it is trusted by this UI:
 
 | | |
 | --- | --- |
-| click the robot | open the sessions panel |
+| click the π | open the sessions panel |
 | `↑` `↓` | move between sessions |
 | `Enter` / `j` | jump to the selected session's terminal |
 | `r` | re-read the registry |

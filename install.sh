@@ -65,7 +65,7 @@ do_() {
 # The bar layout is user data: it is edited through jq on a copy, and only
 # written back when it parses. A slot is either the bare module id or an object
 # carrying it, so both shapes are handled — leaving the old one in place would
-# put a second robot in the bar.
+# put a second π in the bar.
 bar_layout() {
   local mode="$1"
   if [[ ! -f "$SHELL_JSON" ]] || ! jq -e . "$SHELL_JSON" >/dev/null 2>&1; then
@@ -166,7 +166,7 @@ if [[ "$RESTART" == 1 ]]; then
 fi
 
 say ""
-say "done. The robot sits in the tray drawer at the right of the bar: open the tray with"
-say "the chevron, then click the robot for the sessions panel."
+say "done. The pi sits in the tray drawer at the right of the bar: open the tray with"
+say "the chevron, then click the π for the sessions panel."
 say "Start a pi session to see it light up. Restart pi to load the extension."
 say "Check: $HERE/tests/model_contract.py"

@@ -16,7 +16,8 @@ import { basename, join } from "node:path";
 //
 // Publishes every live Pi session to the Omarchy shell, and nothing else.
 //
-// The bar carries one robot icon (`pi.presence`). Clicking it opens a popup
+// The bar carries one π icon (`pi.presence`), in the tray drawer. Clicking it
+// opens a popup
 // listing each running Pi session with a status bubble — "executing bash",
 // "editing", "asking a question", "waiting for you" — and a Jump button that
 // focuses that session's terminal.
@@ -104,7 +105,7 @@ const BUBBLE_CAP = 8;
 export const STALE_SESSION_MS = 20_000;
 
 // Nerd Font pi glyph U+EB55: the bar icon and the window title agree on it.
-const GLYPH = "\u{eb55}";
+const GLYPH = "\u{03c0}"; // π
 
 const EDIT_TOOLS = new Set([
   "edit",
@@ -827,7 +828,7 @@ export default function (pi: ExtensionAPI) {
           sessions.length === 1 ? "session" : "sessions"
         } · this one is ${
           record?.state ?? "idle"
-        } · the robot in the bar opens the list`,
+        } · the π in the bar opens the list`,
         "info",
       );
       // The bar owns popup mapping, and `shell toggle <module>` is the route it

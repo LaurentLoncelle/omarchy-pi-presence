@@ -172,7 +172,11 @@ ShellRoot {
       check("jump on an empty selection is inert", popupPanel.cursor === 2);
       popupPanel.jump(popupPanel.sessionAt(0));
       check("jump closes the panel", popupPanel.opened === false);
-      check("panel icon is the robot", Model.barGlyph(false, false) === "\udb81\ude05");
+      // Compared by code point: the pi glyphs are astral, so a \u literal in QML
+      // would not reach them.
+      check("bar icon is pi", Model.barGlyph(false, false).codePointAt(0) === 0xf0677);
+      check("bar icon is pi-box when working", Model.barGlyph(true, false).codePointAt(0) === 0xf0678);
+      check("bar icon is pi-circle when waiting", Model.barGlyph(true, true).codePointAt(0) === 0xf0679);
 
       console.log(failures === 0 ? "qml: ALL OK" : "qml: " + failures + " FAILED");
     }

@@ -261,8 +261,9 @@ jump = panel[panel.index("function jump(session)"):]
 check("the widget closes before it focuses",
       jump.index("root.close()") < jump.index("Qt.callLater"))
 check("the popup is keyboard driven", "PanelKeyCatcher" in panel)
-check("the bar icon is a robot, idle and working",
-      GLYPHS["bar"] == 0xF0605 and GLYPHS["barLive"] == 0xF06A9)
+check("the bar icon is the pi symbol in every weight",
+      GLYPHS["bar"] == 0xF0677 and GLYPHS["barLive"] == 0xF0678
+      and GLYPHS["barAttention"] == 0xF0679)
 
 service = (PLUGIN / "Service.qml").read_text()
 check("the service reads the same registry", "sessions.json" in service)
