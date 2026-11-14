@@ -108,6 +108,10 @@ Item {
   }
 
   // JSON contains only double quotes, so shell single quotes are safe here.
+  // umask 077 and the chmods matter: this writes into the same private cache
+  // directory as the session registry, and the default 022 umask would leave the
+  // directory 0755 and the file 0644 for any local account to read on a home
+  // that is traversable.
   function persistBaseline() {
     var json = JSON.stringify({
       border_size: baseSize,
@@ -117,7 +121,9 @@ Item {
       angle_speed: baseAngleSpeed
     });
     persistProcess.command = ["bash", "-c",
-      "mkdir -p '" + cacheDir + "' && printf '%s' '" + json + "' > '" + baselinePath + "'"];
+      "umask 077 && mkdir -p '" + cacheDir + "' && " +
+      "printf '%s' '" + json + "' > '" + baselinePath + "' && " +
+      "chmod 700 '" + cacheDir + "' && chmod 600 '" + baselinePath + "'"];
     persistProcess.running = true;
   }
 

@@ -105,7 +105,41 @@ name, or a window title. None of it is trusted by this UI:
 * the Jump button runs argv directly (`hyprctl dispatch …`), never through a
   shell, so there is nothing to quote;
 * the panel is keyboard-driven, so keyboard navigation moves a single cursor,
-  clamped to the rows that exist.
+  clamped to the rows that exist;
+* `~/.cache/pi-presence` is `0700` and `sessions.json` is `0600`, and they are
+  set that way on every write. The registry is the sensitive file: prompts, shell
+  command lines, the tails of tool output, absolute paths, hostnames, window
+  classes. Node applies the process umask to the mode you pass and ignores the
+  mode on a path that already exists, so a bare `writeFileSync` under the usual
+  `022` umask leaves it `0644` — on a home that is group- or other-traversable
+  (`0755` homes are common in containers and on NFS, and a home whose mode was
+  set by an old installer) every local account can read every session. Hence the
+  explicit `chmod` on each write, the `0700` on the directory, and the tightening
+  of `~/.cache` when it is traversable;
+* a symlink is never written through: a directory in the cache path must be a real
+  directory and the registry must not be a link, so a placeholder planted in a
+  world-writable cache cannot turn a heartbeat into an arbitrary file overwrite;
+* the service writes its baseline the same way — `umask 077`, then `chmod 700`
+  on the directory and `chmod 600` on the file;
+* the installer tightens a cache directory and registry an older build left
+  group- or world-readable (`install.sh` → `harden_cache`).
+
+The uninstall leaves `~/.cache/pi-presence` in place on purpose: the border
+baseline in it is what the service hands back to Hyprland on exit. Delete the
+directory to drop the session data with it.
+
+### Data paths
+
+| path | mode | what it is |
+| --- | --- | --- |
+| `~/.cache/pi-presence/` | `0700` | the plugin's cache directory, created private |
+| `~/.cache/pi-presence/sessions.json` | `0600` | the session registry: prompts, command lines, tool-output tails, paths, hostnames |
+| `~/.cache/pi-presence/sessions.json.lock` | `0700` | the mkdir lock writers serialise on |
+| `~/.cache/pi-presence/border-baseline.json` | `0600` | the Hyprland border settings to restore |
+| `~/.cache/pi-presence/status.json` | `0600` | legacy, left by an older version: nothing in this plugin reads it, and it can be deleted |
+| `~/.config/omarchy/plugins/pi-presence/` | `0755` | the plugin's code, not data |
+| `~/.pi/agent/extensions/omarchy-presence.ts` | `0644` | the pi extension pi loads at start |
+| `~/.config/omarchy/shell.json` | user config | the bar layout, edited through `jq` on a copy |
 
 ## Use
 

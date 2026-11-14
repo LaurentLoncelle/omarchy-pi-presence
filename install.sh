@@ -160,6 +160,36 @@ fi
 
 bar_layout add
 
+# The registry holds prompt text, command lines and tool output, and the
+# baseline lives beside it. The extension creates the directory 0700 and the file
+# 0600, but a directory from an older install (or from the service's own
+# mkdir, under a 022 umask) is 0755/0644 and readable by any local account on a
+# traversable home — so the installer tightens what is already there.
+harden_cache() {
+  if [[ ! -O "$CACHE_DIR" ]]; then
+    if [[ -e "$CACHE_DIR" ]]; then
+      say "  $CACHE_DIR is not yours, leaving it alone"
+    fi
+    return 0
+  fi
+  if [[ -L "$CACHE_DIR" ]]; then
+    say "  $CACHE_DIR is a symlink: refusing to publish there, replace it with a directory"
+    return 0
+  fi
+  do_ chmod 700 "$CACHE_DIR"
+  local f
+  for f in "$CACHE_DIR"/*.json; do
+    [[ -f "$f" && ! -L "$f" ]] && do_ chmod 600 "$f"
+  done
+  local parent
+  parent="$(dirname "$CACHE_DIR")"
+  if [[ -O "$parent" && ! -L "$parent" ]]; then
+    do_ chmod 700 "$parent"
+  fi
+  say "  cache   → $CACHE_DIR (0700, registry 0600)"
+}
+harden_cache
+
 if [[ "$DRY" == 0 ]]; then
   omarchy plugin validate "$PLUGIN_DST"
   say "  validated"

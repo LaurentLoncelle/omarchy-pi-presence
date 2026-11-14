@@ -27,6 +27,7 @@ Needs quickshell and Omarchy's qs.Commons / qs.Ui, which the harness links in.
 import os
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -313,6 +314,12 @@ check("the service restores the baseline", "restoreIdle" in service and "hl.conf
 check("the service mirrors its baseline", "border-baseline.json" in service)
 
 manifest = json.loads((PLUGIN / "manifest.json").read_text())
+bar = (PLUGIN / "BarWidget.qml").read_text()
+readme_text = (ROOT / "README.md").read_text() if (ROOT / "README.md").is_file() else ""
+security_text = (ROOT / "SECURITY.md").read_text() if (ROOT / "SECURITY.md").is_file() else ""
+docs_text = (ROOT / "docs/marketplace.md").read_text() if (ROOT / "docs/marketplace.md").is_file() \
+    else (ROOT.parent / "docs/marketplace.md").read_text() \
+    if (ROOT.parent / "docs/marketplace.md").is_file() else security_text
 check("the manifest is schema version 1", manifest.get("schemaVersion") == 1)
 check("the manifest id is pi.presence", manifest.get("id") == "pi.presence")
 for kind in manifest.get("kinds", []):
@@ -356,6 +363,40 @@ check("the presence command summons through the bar",
 check("the notification jumps by window address",
       "hl.dsp.focus({ window = " in extension and "address:" in extension)
 
+# The registry is not decoration: prompts, command lines, tool output tails, cwd
+# and hostname land in ~/.cache/pi-presence. Node masks mkdir/write modes with
+# the process umask, and ignores a mode on a path that already exists, so a bare
+# writeFileSync leaves 0644 under the usual 022 umask — on a home that is group-
+# or other-traversable that is every session, readable by every local account.
+# The modes have to be declared, passed, and chmodded, and the paths lstat'd so
+# a planted symlink cannot become the cache.
+check("the extension declares private modes",
+      "DIR_MODE = 0o700" in extension and "FILE_MODE = 0o600" in extension)
+check("the registry write sets 0600",
+      "writeFileSync(REGISTRY_FILE, JSON.stringify(registry), { mode: FILE_MODE })" in extension)
+check("the registry is chmod 0600 on every write",
+      "chmodSync(REGISTRY_FILE, FILE_MODE)" in extension,
+      "the mode argument applies at creation only: a registry left 0644 by an "
+      "older build is fixed by the chmod, not by the mode")
+check("the cache dir is created 0700 and chmodded",
+      "function ensurePrivateDir" in extension
+      and "mkdirSync(path, { recursive: true, mode: DIR_MODE })" in extension
+      and "chmodSync(path, DIR_MODE)" in extension
+      and "ensurePrivateDir(CACHE_DIR)" in extension,
+      "the directory has to be created private and chmodded: mkdir's mode is "
+      "umask-masked and is ignored for a directory that already exists")
+check("no mkdir of the cache dir outside ensurePrivateDir",
+      "mkdirSync(CACHE_DIR" not in extension)
+check("the cache dir is not written through a symlink",
+      "isSymbolicLink()" in extension and "unlinkSync(REGISTRY_FILE)" in extension)
+check("Service.qml writes under umask 077 with explicit chmods",
+      "umask 077" in service and "chmod 700" in service and "chmod 600" in service)
+if STANDALONE:
+    check("the installer tightens the cache dir to 0700",
+          'chmod 700 "$CACHE_DIR"' in installer, INSTALLER.name)
+else:
+    skip("the installer tightens the cache dir", "the dotfiles copy has no install.sh")
+
 # ---- focus, live -----------------------------------------------------------
 # The last check runs against the machine: it needs Hyprland, so it is skipped
 # offscreen and is real where the plugin is installed.
@@ -373,6 +414,22 @@ if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         print("skipped live registry check: no sessions.json yet")
 else:
     print("skipped live registry check: not a Hyprland session")
+
+# What is on this disk right now. The extension creates the cache 0700 and the
+# registry 0600, so a group- or other-accessible path here means an install from
+# before that was true: prompts and command lines, readable by any account that
+# can walk the home directory.
+cache = Path(os.environ.get("HOME", "/root")) / ".cache/pi-presence"
+if cache.is_dir():
+    mode = stat.S_IMODE(cache.stat().st_mode)
+    check("the live cache dir is private", not cache.is_symlink() and mode & 0o077 == 0,
+          oct(mode))
+    for f in sorted(cache.glob("*.json")):
+        fmode = stat.S_IMODE(f.stat().st_mode)
+        check(f"the live {f.name} is not group/other readable",
+              not f.is_symlink() and fmode & 0o077 == 0, oct(fmode))
+else:
+    skip("the live cache dir is private", "no ~/.cache/pi-presence on this machine")
 
 
 # ---- the marketplace contract ----------------------------------------------
@@ -423,6 +480,87 @@ if STANDALONE:
 else:
     skip("the installer can uninstall", "pi-presence-sync syncs; install.sh uninstalls")
 check("the installer never uses sudo", "sudo" not in installer, INSTALLER.name)
+
+# ---- names, data paths, version ---------------------------------------------
+# The naming section of the system guide and the marketplace rules, applied to
+# this plugin: the names a user sees, the slot the bar maps, the paths the plugin
+# writes, and the version the marketplace publishes. The contract suite is where
+# they are checked, because a rename that misses a file produces a plugin that
+# loads and points at the wrong slot.
+name = manifest.get("name", "")
+check("the plugin is named Pi presence", name == "Pi presence", name)
+check("the widget's display name matches the manifest name",
+      manifest.get("barWidget", {}).get("displayName") == name, name)
+check("the widget is named by what it is, not by what it replaces",
+      manifest.get("barWidget", {}).get("displayName") not in {"", "Widget", "Button"},
+      str(manifest.get("barWidget", {}).get("displayName")))
+check("the service has a description", bool(manifest.get("service", {}).get("description")))
+# The slot the bar maps and the IPC target the panel answers on. Both are
+# pi.presence, in both files, and they match the manifest id and the toggle the
+# extension runs. A slot and an id do not have to agree; this one does, and
+# changing it would mean editing every machine's ~/.config/omarchy/shell.json.
+slots = sorted(set(re.findall(r'(?:moduleName|ipcTarget|target):\s*"([^"]+)"', bar + panel)))
+check("the bar slot is pi.presence in the widget and the panel",
+      slots == ["pi.presence"] and manifest.get("id") == "pi.presence", str(slots))
+check("the bar widget declares the tray drawer",
+      re.search(r"\nBarWidget\s*\{", bar) is not None
+      and manifest.get("barWidget", {}).get("defaultSection") == "tray",
+      "the root is BarWidget (qs.Commons) and the section comes from the manifest")
+check("the extension file is omarchy-presence.ts",
+      EXT.name == "omarchy-presence.ts", EXT.name)
+
+# Data paths, from the guide: cache for the registry, config for the layout, the
+# plugin dir for code, the extension dir for the pi side.
+HOME = Path(os.environ.get("HOME", "/root"))
+DATA_PATHS = {
+    "cache dir": HOME / ".cache/pi-presence",
+    "registry": HOME / ".cache/pi-presence/sessions.json",
+    "baseline": HOME / ".cache/pi-presence/border-baseline.json",
+    "plugin dir": HOME / ".config/omarchy/plugins/pi-presence",
+    "extension": HOME / ".pi/agent/extensions/omarchy-presence.ts",
+    "shell config": HOME / ".config/omarchy/shell.json",
+}
+for label, path in DATA_PATHS.items():
+    documented = f"~/{path.relative_to(HOME)}" if path.is_relative_to(HOME) else str(path)
+    check(f"the {label} path is documented ({documented})",
+          documented in readme_text and documented in docs_text,
+          f"{documented}: README={'yes' if documented in readme_text else 'no'} "
+          f"docs={'yes' if documented in docs_text else 'no'}")
+    if path.is_dir() or path.is_file():
+        check(f"the {label} exists where the docs say it does", True)
+# The lock is a sibling of the registry, and a stale lock silences the bar.
+lock = DATA_PATHS["registry"].with_suffix(".json.lock")
+check("the lock path is documented", str(lock.name) in docs_text, str(lock))
+if DATA_PATHS["cache dir"].is_dir():
+    check("no lock is left behind", not lock.exists(), "a stale lock stops every writer")
+    modes = {p.name: stat.S_IMODE(p.stat().st_mode)
+             for p in DATA_PATHS["cache dir"].glob("*") if not p.is_symlink()}
+    documented = re.findall(r"`(?:[\w./~-]*/)?(sessions\.json|sessions\.json\.lock|border-baseline\.json|status\.json)`\s*\|\s*`(0[0-7]{3})`",
+                            docs_text)
+    for fname, mode in sorted(modes.items()):
+        pair = (fname, f"{mode:04o}")
+        check(f"the docs give the mode of {fname}", pair in documented,
+              f"on disk {mode:04o}, docs {dict(documented)}")
+
+# Version: the marketplace takes it from the manifest, and a submission bumps it.
+version = str(manifest.get("version", ""))
+head = subprocess.run(["git", "-C", str(ROOT), "show", "HEAD:manifest.json"],
+                     capture_output=True, text=True)
+if head.returncode == 0:
+    before = str(json.loads(head.stdout).get("version", ""))
+    key = lambda v: tuple(int(x) for x in re.findall(r"\d+", v)[:3])  # noqa: E731
+    check(f"the version has bumped from HEAD ({before} → {version})",
+          key(version) > key(before), f"HEAD {before}, now {version}")
+else:
+    skip("the version has bumped from HEAD", "no git manifest at HEAD")
+check("the version is in the docs", version in docs_text, version)
+if STANDALONE:
+    for doc in ("SECURITY.md", "docs/marketplace.md"):
+        check(f"{doc} is in the repo", (ROOT / doc).is_file())
+    check("SECURITY.md names the fixed and fixing versions",
+          "2.2.0" in security_text and "2.2.1" in security_text)
+else:
+    skip("SECURITY.md is in the repo", "the dotfiles copy: the collection root has it")
 
 if failures:
     print(f"\n{len(failures)} FAILED of {checks}")

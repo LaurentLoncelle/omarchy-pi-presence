@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "pi.presence",
   "name": "Pi presence",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "author": "loncelll",
   "license": "MIT",
   "description": "One pi icon for every Pi coding-agent session; it opens a popup of live sessions, their status bubbles, and a button that jumps to the session's terminal.",

@@ -3,14 +3,17 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+  chmodSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   rmdirSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 // omarchy-presence
 //
@@ -38,6 +41,16 @@ import { basename, join } from "node:path";
 // a killed Pi cannot wedge the registry). The file is written in place rather
 // than renamed, because the shell watches that inode with inotify: a rename
 // over it does not raise a change event on the watched file.
+//
+// That file is not decoration: it carries prompt text, shell command lines, the
+// tails of tool output, absolute paths and hostnames. So the directory is 0700
+// and the file 0600, set explicitly. Node's mkdir/write modes are masked by the
+// process umask, and a mode on a path that already exists is ignored, so
+// "the default is fine" is exactly how a world-readable prompt log is born: on a
+// home that is group- or other-traversable (0755 homes, container images, NFS
+// exports, synced caches) a 0644 registry leaks every session to every local
+// account. Hence the chmods, and the lstat before them: a symlink at the cache
+// or registry path is never written through.
 
 export type PresenceState =
   | "off"
@@ -93,6 +106,9 @@ interface Registry {
 const CACHE_DIR = join(homedir(), ".cache", "pi-presence");
 export const REGISTRY_FILE = join(CACHE_DIR, "sessions.json");
 const LOCK_DIR = `${REGISTRY_FILE}.lock`;
+// Private, on every path that holds session content, set explicitly. See header.
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
 const LOCK_STALE_MS = 4000;
 const LOCK_WAIT_MS = 1500;
 const HEARTBEAT_MS = 5000;
@@ -351,6 +367,42 @@ export function liveSessions(
   );
 }
 
+/** Create `path` private (0700), and make an existing one stay private. mkdir's
+ * mode is umask-masked and a mode on an existing directory is ignored, so the
+ * chmod is the part that holds. False when the path is not a directory this
+ * process may own — a symlink standing in for the cache, or a file in its place:
+ * writing through those hands the registry to whoever planted them. */
+function ensurePrivateDir(path: string): boolean {
+  try {
+    if (!lstatSync(path).isDirectory()) return false;
+  } catch {
+    /* absent: created below */
+  }
+  try {
+    mkdirSync(path, { recursive: true, mode: DIR_MODE });
+    chmodSync(path, DIR_MODE);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Tighten the cache dir's parent (~/.cache) when it is group- or other-
+ * traversable. XDG calls the cache private and it is the walkway to every path
+ * written here; only a real directory owned by this uid is ever touched, and
+ * never a symlink. */
+function hardenCacheParent(): void {
+  try {
+    const parent = dirname(CACHE_DIR);
+    const st = lstatSync(parent);
+    if (!st.isDirectory() || st.uid !== process.getuid?.()) return;
+    if ((st.mode & 0o077) === 0) return;
+    chmodSync(parent, DIR_MODE);
+  } catch {
+    /* best effort: the registry's own mode is the check that matters */
+  }
+}
+
 function readRegistry(): Registry {
   try {
     const parsed = JSON.parse(readFileSync(REGISTRY_FILE, "utf8")) as Partial<
@@ -369,18 +421,30 @@ function readRegistry(): Registry {
 }
 
 function writeRegistry(registry: Registry): void {
-  mkdirSync(CACHE_DIR, { recursive: true });
-  writeFileSync(REGISTRY_FILE, JSON.stringify(registry));
+  if (!ensurePrivateDir(CACHE_DIR)) return;
+  // Never write through a symlink: a placeholder at the registry path planted by
+  // another account would turn every heartbeat into an overwrite of their choice.
+  try {
+    if (lstatSync(REGISTRY_FILE).isSymbolicLink()) unlinkSync(REGISTRY_FILE);
+  } catch {
+    /* absent: the write creates it */
+  }
+  writeFileSync(REGISTRY_FILE, JSON.stringify(registry), { mode: FILE_MODE });
+  // mode applies at creation only, and is umask-masked even then; this is the
+  // call that fixes a registry an older build left world-readable at 0644.
+  chmodSync(REGISTRY_FILE, FILE_MODE);
 }
 
 /** Read, edit, write, with writers serialised against each other. */
 async function withLock(edit: (registry: Registry) => void): Promise<boolean> {
-  mkdirSync(CACHE_DIR, { recursive: true });
+  if (!ensurePrivateDir(CACHE_DIR)) return false;
+  hardenCacheParent();
   const deadline = Date.now() + LOCK_WAIT_MS;
   let acquired = false;
   for (let attempt = 0; !acquired; attempt += 1) {
     try {
-      mkdirSync(LOCK_DIR);
+      mkdirSync(LOCK_DIR, { mode: DIR_MODE });
+      chmodSync(LOCK_DIR, DIR_MODE);
       acquired = true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") return false;
